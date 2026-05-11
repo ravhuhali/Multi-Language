@@ -10,6 +10,7 @@ faster-whisper
 # Text-to-speech
 edge-tts
 
+gunicorn
 # Audio conversion is done via direct ffmpeg subprocess (no Python lib needed)
 
 # HTTP client (used for ElevenLabs TTS API)
