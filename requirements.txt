@@ -4,8 +4,8 @@ flask
 # Translation (Python 3.13 compatible)
 deep-translator
 
-# Speech-to-text (local Whisper model)
-faster-whisper
+# Speech-to-text (Google Cloud STT — lightweight, no model download)
+SpeechRecognition
 
 # Text-to-speech
 edge-tts

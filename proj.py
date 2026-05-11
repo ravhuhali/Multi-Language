@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 import requests as http_requests
 import subprocess
-from faster_whisper import WhisperModel
+import speech_recognition as sr
 
 app = Flask(__name__)
 
@@ -27,17 +27,13 @@ user_audio_cache = {}
 
 RECORDS_FILE = os.path.join(os.path.dirname(__file__), 'records')
 
-# Load a local transcription model lazily so startup stays fast
-whisper_model = None
-
-
-def get_whisper_model():
-    """Return a singleton Whisper model instance."""
-    global whisper_model
-    if whisper_model is None:
-        model_size = os.getenv('WHISPER_MODEL_SIZE', 'base')
-        whisper_model = WhisperModel(model_size, device='cpu', compute_type='int8')
-    return whisper_model
+# BCP-47 language codes for Google Cloud STT
+_SR_LANG = {
+    'en': 'en-US', 'zu': 'zu-ZA', 'af': 'af-ZA',
+    'st': 'st-ZA', 'xh': 'xh-ZA', 'fr': 'fr-FR',
+    'es': 'es-ES', 'pt': 'pt-BR', 'hi': 'hi-IN',
+    'ar': 'ar-SA', 'sw': 'sw-KE',
+}
 
 
 # ElevenLabs: one natural voice – multilingual_v2 model speaks any language
@@ -121,71 +117,51 @@ def generate_audio(text, language):
     return asyncio.run(_generate_audio_edge_tts(text, language))
 
 
-def transcribe_audio(audio_bytes, source_language='en'):
-    """Transcribe uploaded audio bytes using the provided source language."""
-    model = get_whisper_model()
-    
-    # Save uploaded file temporarily
+def _webm_to_wav(audio_bytes):
+    """Convert webm bytes to a wav temp file. Returns the wav path."""
     with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as fp:
         temp_webm = fp.name
         fp.write(audio_bytes)
-    
-    # Convert webm to wav using ffmpeg (no Python audio library needed)
     temp_wav = temp_webm.replace('.webm', '.wav')
-    try:
-        subprocess.run(
-            ['ffmpeg', '-y', '-i', temp_webm, temp_wav],
-            check=True, capture_output=True
-        )
+    subprocess.run(
+        ['ffmpeg', '-y', '-i', temp_webm, temp_wav],
+        check=True, capture_output=True
+    )
+    os.remove(temp_webm)
+    return temp_wav
 
-        segments, _ = model.transcribe(
-            temp_wav,
-            language=source_language,
-            beam_size=5,
-            vad_filter=True
-        )
-        text = ' '.join(segment.text.strip() for segment in segments if segment.text).strip()
+
+def transcribe_audio(audio_bytes, source_language='en'):
+    """Transcribe uploaded audio bytes using Google Cloud STT."""
+    recognizer = sr.Recognizer()
+    temp_wav = _webm_to_wav(audio_bytes)
+    try:
+        with sr.AudioFile(temp_wav) as source:
+            audio = recognizer.record(source)
+        lang = _SR_LANG.get(source_language, 'en-US')
+        text = recognizer.recognize_google(audio, language=lang)
         if not text:
             raise ValueError('Could not understand audio')
         return text
     finally:
-        if os.path.exists(temp_webm):
-            os.remove(temp_webm)
         if os.path.exists(temp_wav):
             os.remove(temp_wav)
 
 
 def transcribe_audio_auto(audio_bytes):
-    """Single-pass Whisper: transcribe in the spoken language as-is.
-    Google Translate will detect and translate directly to the target language."""
-    model = get_whisper_model()
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as fp:
-        temp_webm = fp.name
-        fp.write(audio_bytes)
-
-    temp_wav = temp_webm.replace('.webm', '.wav')
-
+    """Transcribe audio with Google Cloud STT. Language detection is left
+    to Google Translate (source='auto') since free STT has no lang-detect."""
+    recognizer = sr.Recognizer()
+    temp_wav = _webm_to_wav(audio_bytes)
     try:
-        subprocess.run(
-            ['ffmpeg', '-y', '-i', temp_webm, temp_wav],
-            check=True, capture_output=True
-        )
-
-        segments, info = model.transcribe(
-            temp_wav,
-            beam_size=5,
-            vad_filter=True,
-            task='transcribe',
-        )
-        native_text = ' '.join(s.text.strip() for s in segments if s.text).strip()
-        if not native_text:
+        with sr.AudioFile(temp_wav) as source:
+            audio = recognizer.record(source)
+        # No language hint → Google STT makes its best guess
+        text = recognizer.recognize_google(audio)
+        if not text:
             raise ValueError('Could not understand audio')
-        detected_language = info.language or 'auto'
-        return native_text, detected_language
+        return text, 'auto'
     finally:
-        if os.path.exists(temp_webm):
-            os.remove(temp_webm)
         if os.path.exists(temp_wav):
             os.remove(temp_wav)
 
