@@ -9,7 +9,7 @@
 <body>
     <div class="container">
         <h1>🎤 Multi-Language Translator</h1>
-        <p class="subtitle">Translate between English, Zulu, Sotho, and Afrikaans</p>
+        <p class="subtitle">Speak naturally and translate to the language you choose</p>
         
         <!-- Tab Navigation -->
         <div class="tab-nav">
@@ -20,14 +20,16 @@
         <!-- Translate Tab -->
         <div id="translateTab" class="tab-content active">
         
-        <div style="margin-bottom: 30px;">
-            <p style="color: #a0a0a0; font-size: 0.9rem; text-align: center; margin-bottom: 10px;">Translate to:</p>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
-                <button class="lang-btn active" onclick="setLanguage('zu', 'Zulu')">🇿🇦 Zulu</button>
-                <button class="lang-btn" onclick="setLanguage('en', 'English')">🇬🇧 English</button>
-                <button class="lang-btn" onclick="setLanguage('st', 'Sotho')">🇿🇦 Sotho</button>
-                <button class="lang-btn" onclick="setLanguage('xh', 'Xhosa')">🇿🇦 Xhosa</button>
-                <button class="lang-btn" onclick="setLanguage('af', 'Afrikaans')">🇿🇦 Afrikaans</button>
+        <div class="language-controls">
+            <div class="language-control">
+                <p class="language-label">Translate to:</p>
+                <select id="targetLanguageSelect" onchange="setTargetLanguage(this.value)">
+                    <option value="zu">🇿🇦 Zulu</option>
+                    <option value="en" selected>🇬🇧 English</option>
+                    <option value="st">🇿🇦 Sotho</option>
+                    <option value="xh">🇿🇦 Xhosa</option>
+                    <option value="af">🇿🇦 Afrikaans</option>
+                </select>
             </div>
         </div>
         
@@ -38,21 +40,25 @@
         </div>
         
         <div class="result-box" id="resultBox">
+            <div class="raw-text">
+                <p class="result-label">Captured (raw)</p>
+                <p class="result-text" id="rawResult"></p>
+            </div>
             <div class="english-text">
-                <p class="result-label">You said (English)</p>
+                <p class="result-label" id="sourceLabel">Detected input</p>
                 <p class="result-text" id="englishResult"></p>
             </div>
             <div class="zulu-text">
-                <p class="result-label">Translation (<span id="langLabel">Zulu</span>)</p>
+                <p class="result-label" id="targetLabel">Translation (<span id="langLabel">English</span>)</p>
                 <p class="result-text" id="zuluResult"></p>
             </div>
             <button id="playBtn" onclick="playAudio()">🔊 Play Translation</button>
         </div>
         
         <div class="text-input-section">
-            <h3>Or type in English</h3>
+            <h3 id="textInputTitle">Or type in any language</h3>
             <div class="input-group">
-                <input type="text" id="textInput" placeholder="Type English text here...">
+                <input type="text" id="textInput" placeholder="Type text here...">
                 <button id="translateBtn" onclick="translateText()">Translate</button>
             </div>
         </div>
@@ -63,8 +69,14 @@
         <div id="transcriptTab" class="tab-content">
             <div class="transcript-header">
                 <h3>📜 Conversation History</h3>
-                <button id="downloadBtn" onclick="downloadTranscript()" class="download-btn">⬇️ Download</button>
-                <button id="clearBtn" onclick="clearTranscript()" class="clear-btn">🗑️ Clear</button>
+                <div class="transcript-actions">
+                    <button id="downloadBtn" onclick="downloadTranscript()" class="download-btn">⬇️ TXT</button>
+                    <button id="downloadCsvBtn" onclick="downloadTableCSV()" class="download-btn csv-btn">⬇️ CSV</button>
+                    <button id="clearBtn" onclick="clearTranscript()" class="clear-btn">🗑️ Clear</button>
+                </div>
+            </div>
+            <div class="transcript-search-bar">
+                <input type="text" id="transcriptSearch" placeholder="🔍 Search translations..." oninput="updateTranscriptDisplay()" />
             </div>
             <div id="transcriptList" class="transcript-list">
                 <p class="empty-message">No translations yet. Start translating to see your history!</p>

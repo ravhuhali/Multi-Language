@@ -4,7 +4,6 @@ Speech-to-Speech: Listen in English, Respond in Zulu
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
-import speech_recognition as sr
 from googletrans import Translator
 import edge_tts
 import asyncio
@@ -12,79 +11,141 @@ import os
 import tempfile
 import io
 import uuid
+from datetime import datetime
+import requests as http_requests
 from pydub import AudioSegment
+from faster_whisper import WhisperModel
 
 app = Flask(__name__)
 
-# HTML, CSS, and JavaScript files are in templates/ and static/ directories
 
 # Store generated audio files temporarily
 audio_cache = {}
 
+# Store user input audio files temporarily
+user_audio_cache = {}
+
+RECORDS_FILE = os.path.join(os.path.dirname(__file__), 'records')
+
+# Load a local transcription model lazily so startup stays fast
+whisper_model = None
+
+
+def get_whisper_model():
+    """Return a singleton Whisper model instance."""
+    global whisper_model
+    if whisper_model is None:
+        model_size = os.getenv('WHISPER_MODEL_SIZE', 'base')
+        whisper_model = WhisperModel(model_size, device='cpu', compute_type='int8')
+    return whisper_model
+
+
+# ElevenLabs: one natural voice – multilingual_v2 model speaks any language
+# correctly when the translated text is in that language.
+ELEVENLABS_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'  # Bella
+
+# edge-tts: best available real voices per language.
+# Sotho and Xhosa have no native edge-tts voice; use the closest SA alternative.
+EDGE_TTS_VOICES = {
+    'zu': 'zu-ZA-ThandoNeural',     # Zulu   – native voice
+    'af': 'af-ZA-WillemNeural',     # Afrikaans – native voice
+    'en': 'en-US-AriaNeural',       # English
+    'fr': 'fr-FR-DeniseNeural',
+    'es': 'es-ES-ElviraNeural',
+    'pt': 'pt-BR-FranciscaNeural',
+    'hi': 'hi-IN-SwaraNeural',
+    'ar': 'ar-SA-ZariyahNeural',
+    'sw': 'sw-KE-ZuriNeural',       # Swahili
+    # Sotho / Xhosa: no native edge-tts voice – use Zulu (closest phonetically)
+    'st': 'zu-ZA-ThandoNeural',
+    'xh': 'zu-ZA-ThandoNeural',
+}
+
+
+def _generate_audio_elevenlabs(text, language):
+    """Generate audio via ElevenLabs multilingual_v2.
+    The model speaks in the correct language based on the text content."""
+    api_key = os.getenv('ELEVENLABS_API_KEY', '')
+    if not api_key:
+        return None
+    try:
+        resp = http_requests.post(
+            f'https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}',
+            headers={
+                'xi-api-key': api_key,
+                'Content-Type': 'application/json',
+                'Accept': 'audio/mpeg',
+            },
+            json={
+                'text': text,
+                'model_id': 'eleven_multilingual_v2',
+                'voice_settings': {'stability': 0.5, 'similarity_boost': 0.8},
+            },
+            timeout=30,
+        )
+        if resp.ok and resp.content:
+            return resp.content
+    except Exception:
+        pass
+    return None
+
+
+async def _generate_audio_edge_tts(text, language):
+    """Generate audio via edge-tts (Microsoft Azure Neural TTS)."""
+    voice = EDGE_TTS_VOICES.get(language, 'en-US-AriaNeural')
+    try:
+        communicate = edge_tts.Communicate(text, voice)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
+            temp_file = fp.name
+        await communicate.save(temp_file)
+        with open(temp_file, 'rb') as f:
+            audio_data = f.read()
+        os.remove(temp_file)
+        return audio_data
+    except Exception:
+        communicate = edge_tts.Communicate(text, 'en-US-AriaNeural')
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
+            temp_file = fp.name
+        await communicate.save(temp_file)
+        with open(temp_file, 'rb') as f:
+            audio_data = f.read()
+        os.remove(temp_file)
+        return audio_data
+
 
 def generate_audio(text, language):
-    """Convert text to speech in the specified language and return audio bytes"""
-    # Map language codes to edge_tts voice names
-    voice_map = {
-        'zu': 'zu-ZA-ThandoNeural',   # Zulu
-        'en': 'en-US-AriaNeural',      # English
-        'st': 'zu-ZA-ThandoNeural',    # Sotho (use Afrikaans - most reliable)
-        'xh': 'zu-ZA-ThandoNeural',    # Xhosa
-        'af': 'af-ZA-WillemNeural'     # Afrikaans
-    }
-    
-    voice = voice_map.get(language, 'zu-ZA-ThandoNeural')
-    
-    async def _generate():
-        try:
-            communicate = edge_tts.Communicate(text, voice)
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
-                temp_file = fp.name
-            await communicate.save(temp_file)
-            
-            with open(temp_file, 'rb') as f:
-                audio_data = f.read()
-            
-            os.remove(temp_file)
-            return audio_data
-        except Exception as e:
-            # Fallback to English if voice fails
-            try:
-                communicate = edge_tts.Communicate(text, 'en-US-AriaNeural')
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
-                    temp_file = fp.name
-                await communicate.save(temp_file)
-                
-                with open(temp_file, 'rb') as f:
-                    audio_data = f.read()
-                
-                os.remove(temp_file)
-                return audio_data
-            except Exception:
-                raise Exception(f"Could not generate audio for language {language}")
-    
-    return asyncio.run(_generate())
+    """Try ElevenLabs first (highest quality), fall back to edge-tts."""
+    el_audio = _generate_audio_elevenlabs(text, language)
+    if el_audio:
+        return el_audio
+    return asyncio.run(_generate_audio_edge_tts(text, language))
 
 
-def transcribe_audio(audio_file):
-    """Transcribe audio file to English text"""
-    recognizer = sr.Recognizer()
+def transcribe_audio(audio_bytes, source_language='en'):
+    """Transcribe uploaded audio bytes using the provided source language."""
+    model = get_whisper_model()
     
     # Save uploaded file temporarily
     with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as fp:
         temp_webm = fp.name
-        audio_file.save(temp_webm)
+        fp.write(audio_bytes)
     
     # Convert webm to wav using pydub
     temp_wav = temp_webm.replace('.webm', '.wav')
     try:
         audio_segment = AudioSegment.from_file(temp_webm)
         audio_segment.export(temp_wav, format='wav')
-        
-        with sr.AudioFile(temp_wav) as source:
-            audio = recognizer.record(source)
-            text = recognizer.recognize_google(audio, language="en-US")
-            return text
+
+        segments, _ = model.transcribe(
+            temp_wav,
+            language=source_language,
+            beam_size=5,
+            vad_filter=True
+        )
+        text = ' '.join(segment.text.strip() for segment in segments if segment.text).strip()
+        if not text:
+            raise ValueError('Could not understand audio')
+        return text
     finally:
         if os.path.exists(temp_webm):
             os.remove(temp_webm)
@@ -92,11 +153,103 @@ def transcribe_audio(audio_file):
             os.remove(temp_wav)
 
 
-def translate_language(english_text, target_language):
-    """Translate English text to the target language"""
+def transcribe_audio_auto(audio_bytes):
+    """Single-pass Whisper: transcribe in the spoken language as-is.
+    Google Translate will detect and translate directly to the target language."""
+    model = get_whisper_model()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as fp:
+        temp_webm = fp.name
+        fp.write(audio_bytes)
+
+    temp_wav = temp_webm.replace('.webm', '.wav')
+
+    try:
+        audio_segment = AudioSegment.from_file(temp_webm)
+        audio_segment.export(temp_wav, format='wav')
+
+        segments, info = model.transcribe(
+            temp_wav,
+            beam_size=5,
+            vad_filter=True,
+            task='transcribe',
+        )
+        native_text = ' '.join(s.text.strip() for s in segments if s.text).strip()
+        if not native_text:
+            raise ValueError('Could not understand audio')
+        detected_language = info.language or 'auto'
+        return native_text, detected_language
+    finally:
+        if os.path.exists(temp_webm):
+            os.remove(temp_webm)
+        if os.path.exists(temp_wav):
+            os.remove(temp_wav)
+
+
+def translate_language(text, source_language, target_language):
+    """Translate text between source and target languages."""
     translator = Translator()
-    translation = translator.translate(english_text, src='en', dest=target_language)
+    translation = translator.translate(text, src=source_language, dest=target_language)
     return translation.text
+
+
+SA_LANGUAGES = (
+    "isiZulu (Zulu), isiXhosa (Xhosa), Sesotho (Sotho), Setswana (Tswana), "
+    "Sepedi (Northern Sotho / Pedi), Xitsonga (Tsonga), Tshivenda (Venda), "
+    "siSwati (Swati), isiNdebele (Ndebele), and Afrikaans"
+)
+
+LLM_PROMPT_TEMPLATE = (
+    "You are a multilingual South African speech-to-text correction assistant.\n"
+    "IMPORTANT CONTEXT: The raw text below was produced by a speech-to-text model "
+    "that was listening to someone speaking in a South African native language "
+    "(or a mix of English and a native language). "
+    "The model may have rendered native words as garbled or phonetic English-looking text "
+    "because it struggled with the language.\n"
+    "South African languages in use: " + SA_LANGUAGES + ".\n\n"
+    "Your job:\n"
+    "1. Assume most or all of the words may be from a native SA language, "
+    "NOT English — even if they look like broken English.\n"
+    "2. Translate everything into clean, natural English.\n"
+    "3. If a word looks like a phonetic rendering of a Zulu/Xhosa/Sotho/Afrikaans word, "
+    "identify what native word it likely represents and translate it.\n"
+    "4. Correct grammar, remove fillers (um, uh, like), and produce "
+    "one fluent English sentence or phrase.\n"
+    "5. Return ONLY the final English text — no explanations, no labels.\n\n"
+    "Raw transcription: {raw_text}\n\nEnglish translation:"
+)
+
+
+def clean_to_english(raw_text):
+    """Send raw text to a local LLM to resolve SA languages and fix grammar.
+    Returns (cleaned_text, src_lang) where src_lang is 'en' if LLM succeeded,
+    or 'auto' so Google Translate can detect the language itself as a fallback."""
+    model_name = os.getenv('OLLAMA_MODEL', 'llama3')
+    prompt = LLM_PROMPT_TEMPLATE.format(raw_text=raw_text)
+    try:
+        resp = http_requests.post(
+            'http://localhost:11434/api/generate',
+            json={'model': model_name, 'prompt': prompt, 'stream': False},
+            timeout=30
+        )
+        if resp.ok:
+            cleaned = resp.json().get('response', '').strip()
+            if cleaned:
+                return cleaned, 'en'
+    except Exception:
+        pass
+    return raw_text, 'auto'
+
+
+def save_spoken_record(raw_text, detected_language, target_language, translated_text):
+    """Append spoken input and translation details to the records file."""
+    timestamp = datetime.now().isoformat(timespec='seconds')
+    line = (
+        f"{timestamp} | detected={detected_language} | target={target_language} | "
+        f"said={raw_text} | translation={translated_text}\n"
+    )
+    with open(RECORDS_FILE, 'a', encoding='utf-8') as records_file:
+        records_file.write(line)
 
 
 @app.route('/')
@@ -113,27 +266,39 @@ def translate_audio():
             return jsonify({'success': False, 'error': 'No audio file provided'})
         
         audio_file = request.files['audio']
-        language = request.form.get('language', 'zu')
+        target_language = request.form.get('target_language', 'zu')
+
+        # Read and keep a copy of the user's original recording
+        uploaded_audio = audio_file.read()
+        if not uploaded_audio:
+            return jsonify({'success': False, 'error': 'Empty audio file provided'})
+        user_audio_id = str(uuid.uuid4())
+        user_audio_cache[user_audio_id] = {
+            'data': uploaded_audio,
+            'mimetype': audio_file.mimetype or 'audio/webm'
+        }
         
-        # Transcribe audio to English text
-        english_text = transcribe_audio(audio_file)
-        
-        # Translate to target language
-        translated_text = translate_language(english_text, language)
-        
-        # Generate audio
-        audio_data = generate_audio(translated_text, language)
+        native_text, detected_language = transcribe_audio_auto(uploaded_audio)
+        translated_text = translate_language(native_text, 'auto', target_language)
+        save_spoken_record(native_text, detected_language, target_language, translated_text)
+        output_voice_language = target_language
+
+        # Generate output audio
+        audio_data = generate_audio(translated_text, output_voice_language)
         audio_id = str(uuid.uuid4())
         audio_cache[audio_id] = audio_data
-        
+
         return jsonify({
             'success': True,
-            'english': english_text,
+            'raw_text': native_text,
+            'source_text': native_text,
+            'detected_language': detected_language,
             'translation': translated_text,
-            'audio_id': audio_id
+            'audio_id': audio_id,
+            'user_audio_id': user_audio_id
         })
-        
-    except sr.UnknownValueError:
+
+    except ValueError:
         return jsonify({'success': False, 'error': 'Could not understand audio'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -144,23 +309,24 @@ def translate_text_route():
     """Handle text translation"""
     try:
         data = request.get_json()
-        english_text = data.get('text', '').strip()
-        language = data.get('language', 'zu')
+        text = data.get('text', '').strip()
+        target_language = data.get('target_language', 'zu')
         
-        if not english_text:
+        if not text:
             return jsonify({'success': False, 'error': 'No text provided'})
-        
-        # Translate to target language
-        translated_text = translate_language(english_text, language)
-        
-        # Generate audio
-        audio_data = generate_audio(translated_text, language)
+
+        translated_text = translate_language(text, 'auto', target_language)
+        output_voice_language = target_language
+
+        # Generate output audio
+        audio_data = generate_audio(translated_text, output_voice_language)
         audio_id = str(uuid.uuid4())
         audio_cache[audio_id] = audio_data
-        
+
         return jsonify({
             'success': True,
-            'english': english_text,
+            'raw_text': text,
+            'source_text': text,
             'translation': translated_text,
             'audio_id': audio_id
         })
@@ -182,9 +348,22 @@ def speak(audio_id):
     return jsonify({'error': 'Audio not found'}), 404
 
 
+@app.route('/listen/<audio_id>')
+def listen(audio_id):
+    """Serve user's original recorded audio"""
+    if audio_id in user_audio_cache:
+        audio_obj = user_audio_cache[audio_id]
+        return send_file(
+            io.BytesIO(audio_obj['data']),
+            mimetype=audio_obj['mimetype'],
+            as_attachment=False
+        )
+    return jsonify({'error': 'Audio not found'}), 404
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("  English to Zulu Speech Translator")
-    print("  Open http://localhost:5000 in your browser")
+    print("  Open http://localhost:5010 in your browser")
     print("=" * 50)
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5010)

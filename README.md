@@ -1,12 +1,14 @@
 # Multi-Language Speech Translator
 
-A Flask web application that translates spoken English into South African languages (Zulu, Xhosa, Sotho, Afrikaans) with audio playback.
+A Flask web application that captures speech, transcribes it with a local AI model, translates with Google Translate, and plays back spoken results.
 
 ## Features
 
-- **Voice Input**: Record English speech via microphone
-- **Text Input**: Type English text manually
-- **Translation**: English → Zulu, Xhosa, Sotho, or Afrikaans
+- **Voice Input**: Record speech via microphone
+- **Local AI Transcription**: Uses `faster-whisper` to convert speech to text
+- **Automatic Language Detection**: Detects spoken language from audio
+- **Text Input**: Type text manually
+- **Translation**: Uses Google Translate to translate to your selected language
 - **Audio Playback**: Hear translations spoken aloud
 
 ## Requirements
@@ -79,7 +81,7 @@ project/
 ## Technologies
 
 - **Flask** - Web framework
-- **SpeechRecognition** - Audio transcription
+- **faster-whisper** - Local AI speech-to-text
 - **googletrans** - Translation API
 - **edge-tts** - Text-to-speech
 - **pydub** - Audio format conversion
