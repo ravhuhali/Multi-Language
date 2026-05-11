@@ -11,7 +11,7 @@ faster-whisper
 
 # Text-to-speech
 edge-tts
-
+ 
 # Audio processing (requires FFmpeg installed on the system)
 pydub
 
