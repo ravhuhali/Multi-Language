@@ -13,7 +13,7 @@ import io
 import uuid
 from datetime import datetime
 import requests as http_requests
-from pydub import AudioSegment
+import subprocess
 from faster_whisper import WhisperModel
 
 app = Flask(__name__)
@@ -130,11 +130,13 @@ def transcribe_audio(audio_bytes, source_language='en'):
         temp_webm = fp.name
         fp.write(audio_bytes)
     
-    # Convert webm to wav using pydub
+    # Convert webm to wav using ffmpeg (no Python audio library needed)
     temp_wav = temp_webm.replace('.webm', '.wav')
     try:
-        audio_segment = AudioSegment.from_file(temp_webm)
-        audio_segment.export(temp_wav, format='wav')
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', temp_webm, temp_wav],
+            check=True, capture_output=True
+        )
 
         segments, _ = model.transcribe(
             temp_wav,
@@ -165,8 +167,10 @@ def transcribe_audio_auto(audio_bytes):
     temp_wav = temp_webm.replace('.webm', '.wav')
 
     try:
-        audio_segment = AudioSegment.from_file(temp_webm)
-        audio_segment.export(temp_wav, format='wav')
+        subprocess.run(
+            ['ffmpeg', '-y', '-i', temp_webm, temp_wav],
+            check=True, capture_output=True
+        )
 
         segments, info = model.transcribe(
             temp_wav,
@@ -360,8 +364,6 @@ def listen(audio_id):
 
 
 if __name__ == "__main__":
-    print("=" * 50)
-    print("  English to Zulu Speech Translator")
-    print("  Open http://localhost:5010 in your browser")
-    print("=" * 50)
-    app.run(debug=True, port=5010)
+    port = int(os.environ.get("PORT", 5010))
+    debug = os.environ.get("FLASK_ENV") != "production"
+    app.run(debug=debug, host="0.0.0.0", port=port)
