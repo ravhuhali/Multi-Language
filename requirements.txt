@@ -10,8 +10,7 @@ faster-whisper
 # Text-to-speech
 edge-tts
 
-# Audio processing (requires FFmpeg installed on the system)
-pydub
+# Audio conversion is done via direct ffmpeg subprocess (no Python lib needed)
 
 # HTTP client (used for ElevenLabs TTS API)
 requests
