@@ -1,8 +1,19 @@
+# Web framework
 flask
+
+# Translation
 googletrans==4.0.0-rc1
 httpcore==0.9.1
 httpx==0.13.3
-edge-tts
-pydub
+
+# Speech-to-text (local Whisper model)
 faster-whisper
+
+# Text-to-speech
+edge-tts
+
+# Audio processing (requires FFmpeg installed on the system)
+pydub
+
+# HTTP client (used for ElevenLabs TTS API)
 requests
