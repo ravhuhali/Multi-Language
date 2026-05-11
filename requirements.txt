@@ -1,17 +1,15 @@
 # Web framework
 flask
 
-# Translation
-googletrans==4.0.0-rc1
-httpcore==0.9.1
-httpx==0.13.3
+# Translation (Python 3.13 compatible)
+deep-translator
 
 # Speech-to-text (local Whisper model)
 faster-whisper
 
 # Text-to-speech
 edge-tts
- 
+
 # Audio processing (requires FFmpeg installed on the system)
 pydub
 

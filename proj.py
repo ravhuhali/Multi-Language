@@ -4,7 +4,7 @@ Speech-to-Speech: Listen in English, Respond in Zulu
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 import edge_tts
 import asyncio
 import os
@@ -188,9 +188,7 @@ def transcribe_audio_auto(audio_bytes):
 
 def translate_language(text, source_language, target_language):
     """Translate text between source and target languages."""
-    translator = Translator()
-    translation = translator.translate(text, src=source_language, dest=target_language)
-    return translation.text
+    return GoogleTranslator(source=source_language, target=target_language).translate(text)
 
 
 SA_LANGUAGES = (
