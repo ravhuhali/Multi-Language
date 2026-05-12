@@ -7,8 +7,9 @@ deep-translator
 # Speech-to-text (Google Cloud STT — lightweight, no model download)
 SpeechRecognition
 
-# FFmpeg bundled for all platforms (Windows/macOS/Linux) — no manual install
-imageio-ffmpeg
+# Optional: bundles ffmpeg automatically if not installed system-wide
+# Uncomment if ffmpeg is not available on your system:
+# imageio-ffmpeg
 
 # Text-to-speech
 edge-tts

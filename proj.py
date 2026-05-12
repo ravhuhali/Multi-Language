@@ -14,8 +14,22 @@ import uuid
 from datetime import datetime
 import requests as http_requests
 import subprocess
-import imageio_ffmpeg
+import shutil
 import speech_recognition as sr
+
+
+def _get_ffmpeg():
+    """Return path to ffmpeg: system PATH first, then imageio_ffmpeg fallback."""
+    exe = shutil.which('ffmpeg')
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        raise RuntimeError(
+            'ffmpeg not found. Install it (https://ffmpeg.org) or run: pip install imageio-ffmpeg'
+        )
 
 app = Flask(__name__)
 
@@ -124,7 +138,7 @@ def _webm_to_wav(audio_bytes):
         temp_webm = fp.name
         fp.write(audio_bytes)
     temp_wav = temp_webm.replace('.webm', '.wav')
-    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()  # works on Windows/macOS/Linux
+    ffmpeg_exe = _get_ffmpeg()
     subprocess.run(
         [ffmpeg_exe, '-y', '-i', temp_webm, temp_wav],
         check=True, capture_output=True
