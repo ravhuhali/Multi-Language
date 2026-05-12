@@ -165,18 +165,30 @@ def transcribe_audio(audio_bytes, source_language='en'):
 
 
 def transcribe_audio_auto(audio_bytes):
-    """Transcribe audio with Google Cloud STT. Language detection is left
-    to Google Translate (source='auto') since free STT has no lang-detect."""
+    """Transcribe audio with Google Cloud STT. Tries multiple language hints
+    so native SA languages (Zulu, Xhosa, Sotho, etc.) are picked up.
+    Google Translate source='auto' then detects and translates correctly."""
     recognizer = sr.Recognizer()
     temp_wav = _webm_to_wav(audio_bytes)
     try:
         with sr.AudioFile(temp_wav) as source:
             audio = recognizer.record(source)
-        # No language hint → Google STT makes its best guess
-        text = recognizer.recognize_google(audio)
-        if not text:
-            raise ValueError('Could not understand audio')
-        return text, 'auto'
+
+        # Try each language hint in order; return first successful result.
+        # en-ZA works best for code-switching and SA accents on free STT.
+        attempts = ['en-ZA', 'en-US', 'zu-ZA', 'af-ZA', 'st-ZA', 'xh-ZA']
+        last_err = None
+        for lang in attempts:
+            try:
+                text = recognizer.recognize_google(audio, language=lang)
+                if text:
+                    return text, 'auto'
+            except sr.UnknownValueError as e:
+                last_err = e
+            except sr.RequestError as e:
+                raise RuntimeError(f'Speech recognition service error: {e}')
+
+        raise ValueError('Could not understand audio — please speak clearly and try again')
     finally:
         if os.path.exists(temp_wav):
             os.remove(temp_wav)
