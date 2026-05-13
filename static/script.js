@@ -2,17 +2,20 @@ let mediaRecorder;
 let audioChunks = [];
 let isRecording = false;
 let currentAudioUrl = null;
-let targetLanguage = 'en';
+let targetLanguage = document.getElementById('targetLanguageSelect')
+    ? document.getElementById('targetLanguageSelect').value
+    : 'zu';
 let transcriptHistory = [];
 let lastSourceText = '';
 let lastRecordedUserAudioId = null;
 
 const languageNames = {
-    en: 'English',
-    zu: 'Zulu',
-    st: 'Sotho',
-    xh: 'Xhosa',
-    af: 'Afrikaans',
+    zu:  'Zulu',
+    xh:  'Xhosa',
+    st:  'Sotho',
+    nso: 'Sepedi',
+    tn:  'Tswana',
+    ts:  'Tsonga',
     auto: 'Auto-detected'
 };
 

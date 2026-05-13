@@ -19,3 +19,9 @@ gunicorn
 
 # HTTP client (used for ElevenLabs TTS API)
 requests
+
+# OpenAI agent (multilanguage refinement)
+openai>=1.0.0
+
+# Load secrets from .env
+python-dotenv

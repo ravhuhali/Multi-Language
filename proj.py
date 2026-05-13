@@ -5,6 +5,7 @@ Speech-to-Speech: Listen in English, Respond in Zulu
 
 from flask import Flask, render_template, request, jsonify, send_file
 from deep_translator import GoogleTranslator
+from dotenv import load_dotenv
 import edge_tts
 import asyncio
 import os
@@ -16,6 +17,9 @@ import requests as http_requests
 import subprocess
 import shutil
 import speech_recognition as sr
+from openai import OpenAI
+
+load_dotenv()  # loads OPENAI_API_KEY from .env
 
 
 def _get_ffmpeg():
@@ -42,12 +46,14 @@ user_audio_cache = {}
 
 RECORDS_FILE = os.path.join(os.path.dirname(__file__), 'records')
 
-# BCP-47 language codes for Google Cloud STT
+# BCP-47 language codes for Google Cloud STT (SA native languages only)
 _SR_LANG = {
-    'en': 'en-US', 'zu': 'zu-ZA', 'af': 'af-ZA',
-    'st': 'st-ZA', 'xh': 'xh-ZA', 'fr': 'fr-FR',
-    'es': 'es-ES', 'pt': 'pt-BR', 'hi': 'hi-IN',
-    'ar': 'ar-SA', 'sw': 'sw-KE',
+    'zu':  'zu-ZA',   # Zulu
+    'xh':  'xh-ZA',   # Xhosa
+    'st':  'st-ZA',   # Sotho
+    'nso': 'nso-ZA',  # Sepedi
+    'tn':  'tn-ZA',   # Tswana
+    'ts':  'ts-ZA',   # Tsonga
 }
 
 
@@ -55,22 +61,71 @@ _SR_LANG = {
 # correctly when the translated text is in that language.
 ELEVENLABS_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'  # Bella
 
-# edge-tts: best available real voices per language.
-# Sotho and Xhosa have no native edge-tts voice; use the closest SA alternative.
+# edge-tts: SA native languages only.
+# Only Zulu has a native edge-tts voice; all others use Zulu as the closest
+# phonetically similar SA voice available.
 EDGE_TTS_VOICES = {
-    'zu': 'zu-ZA-ThandoNeural',     # Zulu   – native voice
-    'af': 'af-ZA-WillemNeural',     # Afrikaans – native voice
-    'en': 'en-US-AriaNeural',       # English
-    'fr': 'fr-FR-DeniseNeural',
-    'es': 'es-ES-ElviraNeural',
-    'pt': 'pt-BR-FranciscaNeural',
-    'hi': 'hi-IN-SwaraNeural',
-    'ar': 'ar-SA-ZariyahNeural',
-    'sw': 'sw-KE-ZuriNeural',       # Swahili
-    # Sotho / Xhosa: no native edge-tts voice – use Zulu (closest phonetically)
-    'st': 'zu-ZA-ThandoNeural',
-    'xh': 'zu-ZA-ThandoNeural',
+    'zu':  'zu-ZA-ThandoNeural',  # Zulu   – native voice
+    'xh':  'zu-ZA-ThandoNeural',  # Xhosa  – no native voice, use Zulu
+    'st':  'zu-ZA-ThandoNeural',  # Sotho  – no native voice, use Zulu
+    'nso': 'zu-ZA-ThandoNeural',  # Sepedi – no native voice, use Zulu
+    'tn':  'zu-ZA-ThandoNeural',  # Tswana – no native voice, use Zulu
+    'ts':  'zu-ZA-ThandoNeural',  # Tsonga – no native voice, use Zulu
 }
+
+# ── multilanguage OpenAI agent ────────────────────────────────────────────────
+_LANG_NAMES = {
+    'zu':  'isiZulu',
+    'xh':  'isiXhosa',
+    'st':  'Sesotho',
+    'nso': 'Sepedi',
+    'tn':  'Setswana',
+    'ts':  'Xitsonga',
+}
+
+_MULTILANGUAGE_SYSTEM = (
+    "You are the 'multilanguage' South African language refinement agent. "
+    "Your only job is to take a raw or roughly translated sentence and rewrite it "
+    "as a single, fluent, natural-sounding sentence in the specified language. "
+    "Rules:\n"
+    "- Keep the meaning intact.\n"
+    "- Fix grammar, word order, and phrasing so it sounds like a native speaker.\n"
+    "- Do NOT translate to a different language — stay in the target language.\n"
+    "- Return ONLY the refined sentence. No explanations, no labels."
+)
+
+
+def multilanguage_agent(text: str, language_code: str) -> str:
+    """Refine *text* into a fluent sentence in *language_code* using OpenAI.
+
+    Falls back to the original text if the API call fails or the key is missing.
+    """
+    api_key = os.getenv('OPENAI_API_KEY', '')
+    if not api_key or api_key == 'your-openai-api-key-here':
+        return text  # no key configured – return as-is
+
+    lang_name = _LANG_NAMES.get(language_code, language_code)
+    user_prompt = (
+        f"Language: {lang_name}\n"
+        f"Raw sentence: {text}\n\n"
+        "Refined sentence:"
+    )
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _MULTILANGUAGE_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=256,
+            temperature=0.3,
+        )
+        refined = response.choices[0].message.content.strip()
+        return refined if refined else text
+    except Exception:
+        return text
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _generate_audio_elevenlabs(text, language):
@@ -174,9 +229,8 @@ def transcribe_audio_auto(audio_bytes):
         with sr.AudioFile(temp_wav) as source:
             audio = recognizer.record(source)
 
-        # Try each language hint in order; return first successful result.
-        # en-ZA works best for code-switching and SA accents on free STT.
-        attempts = ['en-ZA', 'en-US', 'zu-ZA', 'af-ZA', 'st-ZA', 'xh-ZA']
+        # Try each SA native language hint in order; return first successful result.
+        attempts = ['zu-ZA', 'xh-ZA', 'st-ZA', 'nso-ZA', 'tn-ZA', 'ts-ZA', 'en-ZA']
         last_err = None
         for lang in attempts:
             try:
@@ -286,6 +340,8 @@ def translate_audio():
         
         native_text, detected_language = transcribe_audio_auto(uploaded_audio)
         translated_text = translate_language(native_text, 'auto', target_language)
+        # Refine the translation into a fluent native-language sentence
+        translated_text = multilanguage_agent(translated_text, target_language)
         save_spoken_record(native_text, detected_language, target_language, translated_text)
         output_voice_language = target_language
 
@@ -322,6 +378,8 @@ def translate_text_route():
             return jsonify({'success': False, 'error': 'No text provided'})
 
         translated_text = translate_language(text, 'auto', target_language)
+        # Refine the translation into a fluent native-language sentence
+        translated_text = multilanguage_agent(translated_text, target_language)
         output_voice_language = target_language
 
         # Generate output audio

@@ -24,11 +24,12 @@
             <div class="language-control">
                 <p class="language-label">Translate to:</p>
                 <select id="targetLanguageSelect" onchange="setTargetLanguage(this.value)">
-                    <option value="zu">🇿🇦 Zulu</option>
-                    <option value="en" selected>🇬🇧 English</option>
-                    <option value="st">🇿🇦 Sotho</option>
+                    <option value="zu" selected>🇿🇦 Zulu</option>
                     <option value="xh">🇿🇦 Xhosa</option>
-                    <option value="af">🇿🇦 Afrikaans</option>
+                    <option value="st">🇿🇦 Sotho</option>
+                    <option value="nso">🇿🇦 Sepedi</option>
+                    <option value="tn">🇿🇦 Tswana</option>
+                    <option value="ts">🇿🇦 Tsonga</option>
                 </select>
             </div>
         </div>
@@ -49,7 +50,7 @@
                 <p class="result-text" id="englishResult"></p>
             </div>
             <div class="zulu-text">
-                <p class="result-label" id="targetLabel">Translation (<span id="langLabel">English</span>)</p>
+                <p class="result-label" id="targetLabel">Translation (<span id="langLabel">Zulu</span>)</p>
                 <p class="result-text" id="zuluResult"></p>
             </div>
             <button id="playBtn" onclick="playAudio()">🔊 Play Translation</button>
