@@ -54,6 +54,7 @@ _SR_LANG = {
     'nso': 'nso-ZA',  # Sepedi
     'tn':  'tn-ZA',   # Tswana
     'ts':  'ts-ZA',   # Tsonga
+    'en':  'en-ZA',   # English
 }
 
 
@@ -71,6 +72,7 @@ EDGE_TTS_VOICES = {
     'nso': 'zu-ZA-ThandoNeural',  # Sepedi – no native voice, use Zulu
     'tn':  'zu-ZA-ThandoNeural',  # Tswana – no native voice, use Zulu
     'ts':  'zu-ZA-ThandoNeural',  # Tsonga – no native voice, use Zulu
+    'en':  'en-US-AriaNeural',      # English
 }
 
 # ── multilanguage OpenAI agent ────────────────────────────────────────────────
@@ -81,6 +83,7 @@ _LANG_NAMES = {
     'nso': 'Sepedi',
     'tn':  'Setswana',
     'ts':  'Xitsonga',
+    'en':  'English',
 }
 
 _MULTILANGUAGE_SYSTEM = (
@@ -230,7 +233,7 @@ def transcribe_audio_auto(audio_bytes):
             audio = recognizer.record(source)
 
         # Try each SA native language hint in order; return first successful result.
-        attempts = ['zu-ZA', 'xh-ZA', 'st-ZA', 'nso-ZA', 'tn-ZA', 'ts-ZA', 'en-ZA']
+        attempts = ['zu-ZA', 'xh-ZA', 'st-ZA', 'nso-ZA', 'tn-ZA', 'ts-ZA', 'en-ZA', 'en-US']
         last_err = None
         for lang in attempts:
             try:

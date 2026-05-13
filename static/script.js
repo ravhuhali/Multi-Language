@@ -16,6 +16,7 @@ const languageNames = {
     nso: 'Sepedi',
     tn:  'Tswana',
     ts:  'Tsonga',
+    en:  'English',
     auto: 'Auto-detected'
 };
 
